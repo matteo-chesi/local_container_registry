@@ -107,6 +107,12 @@ function setup() {
   [ -z ${DIRECTORY} ] && echo "ERROR: missing DIRECTORY specification" >&2 && exit 1
   [ ! -d ${DIRECTORY} ] && echo "ERROR: cannot find DIRECTORY ${DIRECTORY}" >&2 && exit 1
 
+  LOCAL_ADDRESS=$(hostname)
+  [ -z ${LOCAL_ADDRESS} ] && echo "ERROR: cannot find LOCAL_ADDRESS for local container registry" >&2 && exit 1
+
+  # Lock
+  lock
+
   # Create authentication file
   cd ${DIRECTORY}
   mkdir -p ./auth
@@ -114,7 +120,6 @@ function setup() {
 
   # Create new certificates
   mkdir -p ./certs
-  LOCAL_ADDRESS=$(hostname)
   openssl req -newkey rsa:4096 \
   -nodes -sha256 \
   -keyout certs/domain.key \
@@ -146,22 +151,28 @@ function setup() {
     fi
   fi
   echo "${DIRECTORY}" > ${LOCAL_ADDRESS_FILE}
-  echo "Local container registry for ${LOCAL_ADDRESS} at ${DIRECTORY} is setup." >&2
   
+  # unlock
+  unlock
+
+  echo "Local container registry for ${LOCAL_ADDRESS} at ${DIRECTORY} is setup." >&2
 }
 
 function start() {
   LOCAL_ADDRESS=$(hostname)
-  LOCAL_ADDRESS_FILE="${USER_CONF_DIR}/${LOCAL_ADDRESS}.conf"
-  LOCAL_PORT_FILE="${USER_CONF_DIR}/${LOCAL_ADDRESS}_port.conf"
-  DIRECTORY=$(cat ${LOCAL_ADDRESS_FILE})
-  DEFAULT_PORT=$(get_default_port)
-  LOCAL_PORT=$(find_available_port "${DEFAULT_PORT}")
-
   [ -z ${LOCAL_ADDRESS} ] && echo "ERROR: cannot find LOCAL_ADDRESS for local container registry" >&2 && exit 1
-  [ -z ${LOCAL_PORT} ] && echo "ERROR: cannot find LOCAL_PORT for local container registry" >&2 && exit 1
+
+  LOCAL_ADDRESS_FILE="${USER_CONF_DIR}/${LOCAL_ADDRESS}.conf"
+  [ ! -f ${LOCAL_ADDRESS_FILE} ] && echo "ERROR: Missing LOCAL_ADDRESS_FILE at ${LOCAL_ADDRESS_FILE}" >&2 && exit 1
+
+  DIRECTORY=$(cat ${LOCAL_ADDRESS_FILE})
   [ -z ${DIRECTORY} ] && echo "ERROR: cannot find DIRECTORY for local container registry" >&2 && exit 1
   [ ! -d ${DIRECTORY} ] && echo "ERROR: cannot find DIRECTORY \"${DIRECTORY}\" for local container registry" >&2 && exit 1
+
+  LOCAL_PORT_FILE="${USER_CONF_DIR}/${LOCAL_ADDRESS}_port.conf"
+  DEFAULT_PORT=$(get_default_port)
+  LOCAL_PORT=$(find_available_port "${DEFAULT_PORT}")
+  [ -z ${LOCAL_PORT} ] && echo "ERROR: cannot find LOCAL_PORT for local container registry" >&2 && exit 1
 
   set +e
   do_status
@@ -215,10 +226,10 @@ function do_status() {
 
 function stop() {
   LOCAL_ADDRESS=$(hostname)
+  [ -z ${LOCAL_ADDRESS} ] && echo "ERROR: cannot find LOCAL_ADDRESS for local container registry" >&2 && exit 1
+
   LOCAL_ADDRESS_FILE="${USER_CONF_DIR}/${LOCAL_ADDRESS}.conf"
   DIRECTORY=$(cat ${LOCAL_ADDRESS_FILE})
-
-  [ -z ${LOCAL_ADDRESS} ] && echo "ERROR: cannot find LOCAL_ADDRESS for local container registry" >&2 && exit 1
   [ -z ${DIRECTORY} ] && echo "ERROR: cannot find DIRECTORY for local container registry" >&2 && exit 1
   [ ! -d ${DIRECTORY} ] && echo "ERROR: cannot find DIRECTORY \"${DIRECTORY}\" for local container registry" >&2 && exit 1
 
