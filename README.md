@@ -29,7 +29,7 @@ podman login --tls-verify=false <REGISTRY_HOST>:<REGISTRY_PORT>
 # CHECK registry status
 $ ./local_container_registry status
 local container registry ( use option --tls-verify=false ) is running at:
-clariden-ln001:5000
+<REGISTRY_HOST>:<REGISTRY_PORT>
 
 # LOGIN into the registry
 $ podman login --tls-verify=false <REGISTRY_HOST>:<REGISTRY_PORT>
