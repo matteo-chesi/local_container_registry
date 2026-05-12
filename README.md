@@ -7,6 +7,9 @@ local_container_registry is an helper script to manage a local container registr
 ```console
 # DOWNLOAD SCRIPT
 $ git clone https://github.com/matteo-chesi/local_container_registry.git
+Cloning into 'local_container_registry'...
+...
+Receiving objects: 100% (6/6), done.
 $ cd local_container_registry
 
 # SETUP the registry
@@ -18,7 +21,7 @@ Local container registry for <REGISTRY_HOST> at <CHOSEN_REGISTRY_DIRPATH> is set
 # ./local_container_registry start
 Local container registry started on folder <CHOSEN_REGISTRY_PATH>
 The address is:
-<REGISTRY_HOST>:{REGISTRY_PORT}
+<REGISTRY_HOST>:<REGISTRY_PORT>
 
 Run this command to use it:
 podman login --tls-verify=false <REGISTRY_HOST>:<REGISTRY_PORT>
@@ -68,4 +71,3 @@ Removing configuration file <HOME>/.local_container_registry/<REGISTRY_HOST>.con
 
 local container registry is DELETED.
 ```
-
