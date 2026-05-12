@@ -169,6 +169,9 @@ function start() {
   [ -z ${DIRECTORY} ] && echo "ERROR: cannot find DIRECTORY for local container registry" >&2 && exit 1
   [ ! -d ${DIRECTORY} ] && echo "ERROR: cannot find DIRECTORY \"${DIRECTORY}\" for local container registry" >&2 && exit 1
 
+  DATA_DIRECTORY="${DIRECTORY}/data"
+  [ ! -d ${DATA_DIRECTORY} ] && echo "ERROR: cannot find DATA_DIRECTORY \"${DATA_DIRECTORY}\" for local container registry" >&2 && exit 1
+
   LOCAL_PORT_FILE="${USER_CONF_DIR}/${LOCAL_ADDRESS}_port.conf"
   DEFAULT_PORT=$(get_default_port)
   LOCAL_PORT=$(find_available_port "${DEFAULT_PORT}")
