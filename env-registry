@@ -1,0 +1,6 @@
+
+LCR_PATH="$(readlink -f $(dirname ${BASH_SOURCE[0]}))"
+if ! ( echo "$PATH" | grep -q "$LCR_PATH")
+then
+  PATH="$LCR_PATH:$PATH"
+fi

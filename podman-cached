@@ -1,0 +1,36 @@
+#!/usr/bin/bash
+
+if [ -f "${HOME}/.local_container_registry/registry.conf" ]
+then
+  . ${HOME}/.local_container_registry/registry.conf
+fi
+
+if [ -z "$LOCAL_CONTAINER_REGISTRY" ]
+then
+  echo "ERROR: Missing $LOCAL_CONTAINER_REGISTRY, run 'registry up <DIRECTORY>' first" >&2
+  exit 1
+fi
+
+if [ -z "${SLURM_JOB_ID}" ]
+then
+  echo "ERROR: Cannot use Local Container Registry outside of a slurm job" >&2
+  exit 1
+else
+  BUILD_OPTS="--layers --tls-verify=false --cache-from=${LOCAL_CONTAINER_REGISTRY}/cache --cache-to=${LOCAL_CONTAINER_REGISTRY}/cache"
+
+  # Ensure registry is running
+  $(dirname $0)/registry status &>/dev/null
+  if [ $? -ne 0 ]
+  then
+    $(dirname $0)/registry up
+    $(dirname $0)/registry status &>/dev/null
+    if [ $? -ne 0 ]
+    then
+      echo "ERROR: registry is not available at $LOCAL_CONTAINER_REGISTRY" >&2
+      exit 1
+    fi
+  fi 
+fi
+
+echo "Executing: podman build ${BUILD_OPTS} $@" >&2
+podman build ${BUILD_OPTS} $@
