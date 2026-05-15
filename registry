@@ -154,6 +154,14 @@ function down() {
   LOCAL_ADDRESS=$(hostname)
   [ -z ${LOCAL_ADDRESS} ] && echo "ERROR: cannot find LOCAL_ADDRESS for local container registry" >&2 && exit 1
 
+  LOCAL_ADDRESS_FILE="${USER_CONF_DIR}/registry.conf"
+  [ ! -f ${LOCAL_ADDRESS_FILE} ] && echo "ERROR: Missing LOCAL_ADDRESS_FILE at ${LOCAL_ADDRESS_FILE}" >&2 && exit 1
+
+  . ${LOCAL_ADDRESS_FILE}
+  DIRECTORY="${LOCAL_CONTAINER_REGISTRY_DIR}"
+  [ -z "${DIRECTORY}" ] && echo "ERROR: missing DIRECTORY specification" >&2 && exit 1
+  [ ! -d "${DIRECTORY}" ] && echo "ERROR: cannot find DIRECTORY ${DIRECTORY}" >&2 && exit 1
+
   set +e
   podman container stop "${CONTAINER_NAME}" &>/dev/null
   podman container rm "${CONTAINER_NAME}" &>/dev/null
@@ -165,9 +173,11 @@ function down() {
   if [ $RC -eq 0 ]
   then
     echo "ERROR: local container registry is STILL running." >&2
+    exit 1
   else
     unlock
     echo "local container registry is stopped." >&2
+    exit 0
   fi
 }
 
@@ -219,7 +229,8 @@ function lock() {
   then
     LOCKING_ADDRESS=$(cat ${LOCK_FILE} | cut -f1)
     LOCKING_USER=$(cat ${LOCK_FILE} | cut -f2)
-    LOCKING_JOB=$(cat ${LOCK_FILE} | cut -f3)
+    LOCKING_CLUSTER=$(cat ${LOCK_FILE} | cut -f3)
+    LOCKING_JOB=$(cat ${LOCK_FILE} | cut -f4)
 
     if [ "${LOCKING_ADDRESS}" == "${LOCAL_ADDRESS}" ]
     then
@@ -233,7 +244,9 @@ function lock() {
       RC=$?
       set -e
 
-      if [ "${LOCKING_USER}" == "${USER}" ] && [ "${LOCKING_JOB}" == "${SLURM_JOB_ID}" ]
+      if [ "${LOCKING_USER}" == "${USER}" ] && \
+         [ "${LOCKING_CLUSTER}" == "${CLUSTER_NAME}" ] && \
+         [ "${LOCKING_JOB}" == "${SLURM_JOB_ID}" ]
       then
         if [ $RC -eq 0 ]
         then
@@ -246,21 +259,28 @@ function lock() {
       else
         if [ $RC -ne 0 ]
         then
-          echo -e "${LOCAL_ADDRESS}\t${USER}\t${SLURM_JOB_ID}" > ${LOCK_FILE}
+          echo -e "${LOCAL_ADDRESS}\t${USER}\t${CLUSTER_NAME}\t${SLURM_JOB_ID}" > ${LOCK_FILE}
           return 0
         fi
       fi
     fi
 
+    if [ -n "${LOCKING_JOB}" ] && ! is_job_running ${LOCKING_JOB}
+    then
+      echo -e "${LOCAL_ADDRESS}\t${USER}\t${CLUSTER_NAME}\t${SLURM_JOB_ID}" > ${LOCK_FILE}
+      return 0
+    fi
+
     MSG_SUFFIX=""
     [ -n "${LOCKING_USER}" ] && MSG_SUFFIX="${MSG_SUFFIX} user ${LOCKING_USER} on"
+    [ -n "${LOCKING_CLUSTER}" ] && MSG_SUFFIX="${MSG_SUFFIX} ${LOCKING_CLUSTER}"
     [ -n "${LOCKING_JOB}" ] && MSG_SUFFIX="${MSG_SUFFIX} job ${LOCKING_JOB} at"
     MSG_SUFFIX="${MSG_SUFFIX} ${LOCKING_ADDRESS}"
     echo "ERROR: local container registry is locked by${MSG_SUFFIX}"
     return 1
 
   else
-    echo -e "${LOCAL_ADDRESS}\t${USER}\t${SLURM_JOB_ID}" > ${LOCK_FILE}
+    echo -e "${LOCAL_ADDRESS}\t${USER}\t${CLUSTER_NAME}\t${SLURM_JOB_ID}" > ${LOCK_FILE}
     return 0
   fi
 }
@@ -271,11 +291,14 @@ function unlock() {
   then
     LOCKING_ADDRESS=$(cat ${LOCK_FILE} | cut -f1)
     LOCKING_USER=$(cat ${LOCK_FILE} | cut -f2)
-    LOCKING_JOB=$(cat ${LOCK_FILE} | cut -f3)
+    LOCKING_CLUSTER=$(cat ${LOCK_FILE} | cut -f3)
+    LOCKING_JOB=$(cat ${LOCK_FILE} | cut -f4)
 
     if [ "${LOCKING_ADDRESS}" == "${LOCAL_ADDRESS}" ]
     then
-      if [ "${LOCKING_USER}" == "${USER}" ] && [ "${LOCKING_JOB}" == "${SLURM_JOB_ID}" ]
+      if [ "${LOCKING_USER}" == "${USER}" ] && \
+         [ "${LOCKING_CLUSTER}" == "${CLUSTER_NAME}" ] && \
+         [ "${LOCKING_JOB}" == "${SLURM_JOB_ID}" ]
       then
         rm -f ${LOCK_FILE}
         return 0
@@ -297,8 +320,18 @@ function unlock() {
         fi
       fi
     fi
+
+    if [ "${LOCKING_CLUSTER}"  == "${CLUSTER_NAME}" ] && \
+       [ -n "${LOCKING_JOB}" ] && \
+       ! is_job_running ${LOCKING_JOB}
+    then
+      rm -f ${LOCK_FILE}
+      return 0
+    fi
+
     MSG_SUFFIX=""
     [ -n "${LOCKING_USER}" ] && MSG_SUFFIX="${MSG_SUFFIX} user ${LOCKING_USER} on"
+    [ -n "${LOCKING_CLUSTER}" ] && MSG_SUFFIX="${MSG_SUFFIX} ${LOCKING_CLUSTER}"
     [ -n "${LOCKING_JOB}" ] && MSG_SUFFIX="${MSG_SUFFIX} job ${LOCKING_JOB} at"
     MSG_SUFFIX="${MSG_SUFFIX} ${LOCKING_ADDRESS}"
     echo "ERROR: local container registry is locked by${MSG_SUFFIX}"
@@ -312,6 +345,15 @@ function find_running_port() {
 
 function find_running_ip() {
   podman container inspect ${CONTAINER_NAME} | jq -r '.[].NetworkSettings.Ports."5000/tcp"[0].HostIp'
+}
+
+function find_running_directory() {
+ podman container inspect ${CONTAINER_NAME} | jq -r '.[].Mounts | select (.[].Destination == "/var/lib/registry") | .[].Source '
+}
+
+function is_job_running() {
+  local JOB_ID="$1"
+  squeue -h -t r -o %A -j ${JOB_ID} 2>/dev/null | grep -qw "${JOB_ID}"
 }
 
 function find_available_port() {
