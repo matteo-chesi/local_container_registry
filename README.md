@@ -27,7 +27,7 @@ $ mkdir <CHOSEN_REGISTRY_DIRPATH>
 
 # <CHOSEN_REGISTRY_DIRPATH> can be omitted if unchanged 
 $ . env-registry && registry up <CHOSEN_REGISTRY_DIRPATH>
-Local container registry started on folder <CHOSEN_REGISTRY_PATH>
+Local container registry started on folder <CHOSEN_REGISTRY_DIRPATH>
 The address is:
 <REGISTRY_HOST>:<REGISTRY_PORT>
 
