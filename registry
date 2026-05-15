@@ -11,13 +11,14 @@ function help() {
 
   Commands:
 
-  * up <DIRECTORY_PATH>  : start local container registry 
+  * up <DIRECTORY_PATH>  : start local container registry, 
+                           <DIRECTORY_PATH> defaults at the last used one if available. 
   
   * status : check status of local container registry
 
   * down   : stop local container registry
 
-  * delete  : delete local container registry, remove both data and configuration
+  * delete : delete local container registry, remove both data and configuration
 
 EOF
 }
