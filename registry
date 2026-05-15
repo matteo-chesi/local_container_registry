@@ -391,8 +391,10 @@ function status() {
     LOCAL_PORT=$(find_running_port)
     echo "local container registry is running at:" >&2
     echo "${LOCAL_ADDRESS}:${LOCAL_PORT}" >&1
+    exit 0
   else
     echo "local container registry is stopped." >&2
+    exit 1
   fi
 }
 

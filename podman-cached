@@ -22,7 +22,7 @@ else
   $(dirname $0)/registry status &>/dev/null
   if [ $? -ne 0 ]
   then
-    $(dirname $0)/registry up
+    $(dirname $0)/registry up || exit 1
     $(dirname $0)/registry status &>/dev/null
     if [ $? -ne 0 ]
     then
@@ -33,4 +33,5 @@ else
 fi
 
 echo "Executing: podman build ${BUILD_OPTS} $@" >&2
+exit 0
 podman build ${BUILD_OPTS} $@
