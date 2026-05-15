@@ -22,7 +22,7 @@ $ cd local_container_registry
 # LAUNCH interactive slurm job
 $ srun ... --pty bash
 
-# SETUP the registry
+# SETUP registry
 $ mkdir <CHOSEN_REGISTRY_DIRPATH>
 
 # <CHOSEN_REGISTRY_DIRPATH> can be omitted if unchanged 
@@ -31,7 +31,7 @@ Local container registry started on folder <CHOSEN_REGISTRY_DIRPATH>
 The address is:
 <REGISTRY_HOST>:<REGISTRY_PORT>
 
-# USE the registry as a cache
+# USE registry as cache
 $ cat ./Containerfile
 FROM ubuntu:latest
 RUN apt update
@@ -50,7 +50,7 @@ STEP 3/3: RUN apt upgrade -y
 --> 2c8781e264b0
 2c8781e264b03ce41c571b6a4d24c8d8472a413ee50073ad662e517f92a0ff2a
 
-# STOP the registry
+# STOP registry
 $ registry down
 local container registry is stopped.
 ```
@@ -67,7 +67,7 @@ local container registry is running at:
 $ registry status
 local container registry is stopped.
 
-# DELETE the registry (when data is not needed anymore)
+# DELETE registry (when data is not needed anymore)
 $ registry delete
 Removing directory <CHOSEN_REGISTRY_DIRPATH> content ... [DONE]
 Removing configuration file <HOME>/.local_container_registry/registry.conf ... [DONE]
