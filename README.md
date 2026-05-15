@@ -55,7 +55,7 @@ $ registry down
 local container registry is stopped.
 ```
 
-# Further commands
+# Additional commands
 
 ```console
 # CHECK registry status (UP)
