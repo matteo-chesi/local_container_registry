@@ -1,0 +1,363 @@
+#!/usr/bin/bash
+
+set -e
+
+function help() {
+  cat >&2 << EOF
+
+  This script supports local container registry management
+
+  Usage: ${SCRIPTNAME} <command> <options>
+
+  Commands:
+
+  * up <DIRECTORY_PATH>  : start local container registry 
+  
+  * status : check status of local container registry
+
+  * down   : stop local container registry
+
+  * delete  : delete local container registry, remove both data and configuration
+
+EOF
+}
+
+function parse_args() {
+
+  # Check COMMAND existence
+  if [ -z $1 ]
+  then
+    echo 'ERROR: Missing command.'
+    help
+    exit 1
+  fi
+
+  case $1 in
+    up)
+      shift 1
+      up $@
+      ;;
+    status)
+      shift 1
+      status
+      ;;
+    down)
+      shift 1
+      down
+      ;;
+    delete)
+      shift 1
+      delete 
+      ;;
+    help|--help|-h)
+      help
+      exit 0
+      ;;
+    *)
+      echo "Error. Unrecognized command: $1" >&2
+      help
+      exit 1
+      ;;
+  esac
+}
+
+function up() {
+  DIRECTORY="$1"
+  OLD_DIRECTORY=""
+
+  # Allow only inside a slurm job
+  [ -z "${SLURM_JOB_ID}" ] && echo "ERROR: must run inside a slurm job" >&2 && exit 1
+
+  # Get DIRECTORY from old saved value when missing
+  [ ! -e "${USER_CONF_DIR}" ] && mkdir -p ${USER_CONF_DIR}
+  [ ! -d "${USER_CONF_DIR}" ] && echo "ERROR: ${USER_CONF_DIR} is not a directory" >&2 && exit 1
+  LOCAL_ADDRESS_FILE="${USER_CONF_DIR}/registry.conf"
+  if [ -f "${LOCAL_ADDRESS_FILE}" ] 
+  then
+    . ${LOCAL_ADDRESS_FILE}
+    OLD_DIRECTORY="${LOCAL_CONTAINER_REGISTRY_DIR}"
+    if [ -n "${OLD_DIRECTORY}" ] && [ -z "${DIRECTORY}" ]
+    then
+      DIRECTORY="${OLD_DIRECTORY}"
+    fi
+  fi
+
+  LOCAL_ADDRESS=$(hostname)
+  [ -z "${LOCAL_ADDRESS}" ] && echo "ERROR: cannot find LOCAL_ADDRESS for local container registry" >&2 && exit 1
+
+  [ -z "${DIRECTORY}" ] && echo "ERROR: missing DIRECTORY specification" >&2 && exit 1
+  [ ! -d "${DIRECTORY}" ] && echo "ERROR: cannot find DIRECTORY ${DIRECTORY}" >&2 && exit 1
+
+  # Lock
+  lock
+
+  if [ -n "${OLD_DIRECTORY}" ] && [ "${DIRECTORY}" != "${OLD_DIRECTORY}" ]
+  then
+    echo "Overriding previous local container registry directory setting for ${LOCAL_ADDRESS}" >&2
+    echo "Previous local container registry was at ${OLD_DIRECTORY}" >&2
+    echo "" >&2
+  fi
+
+  # Create data directory
+  DATA_DIRECTORY="${DIRECTORY}/data"
+  mkdir -p ${DATA_DIRECTORY}
+  [ ! -d "${DATA_DIRECTORY}" ] && echo "ERROR: cannot find DATA_DIRECTORY \"${DATA_DIRECTORY}\" for local container registry" >&2 && exit 1
+
+  # Save Registry Directory
+  echo "export LOCAL_CONTAINER_REGISTRY_DIR=${DIRECTORY}" > ${LOCAL_ADDRESS_FILE}
+  
+  LOCAL_PORT=$(find_available_port "5000")
+  [ -z "${LOCAL_PORT}" ] && echo "ERROR: cannot find LOCAL_PORT for local container registry" >&2 && exit 1
+
+  set +e
+  do_status
+  RC=$?
+  set -e
+
+  if [ $RC -eq 0 ]
+  then
+    echo "ERROR: local container registry is ALREADY running." >&2
+    unlock
+    exit 1
+  fi
+
+  # Run
+  podman run -d \
+  -p 127.0.0.1:${LOCAL_PORT}:5000 \
+  --restart=always \
+  --name ${CONTAINER_NAME} \
+  -v "${DATA_DIRECTORY}":/var/lib/registry \
+  -e REGISTRY_HTTP_ADDR=0.0.0.0:5000 \
+  docker.io/registry:3 &>/dev/null
+
+  export LOCAL_CONTAINER_REGISTRY="localhost:${LOCAL_PORT}"
+  echo "export LOCAL_CONTAINER_REGISTRY=${LOCAL_CONTAINER_REGISTRY}" >> ${LOCAL_ADDRESS_FILE}
+
+  echo "Local container registry started on folder ${DIRECTORY}" >&2
+  echo "The address is:" >&2
+  echo "${LOCAL_CONTAINER_REGISTRY}" >&1
+  echo "" >&2
+}
+
+function do_status() {
+  STATUS=$(podman container inspect "${CONTAINER_NAME}" 2>/dev/null | jq -r '.[].State.Status')
+  if [ "${STATUS}" == "running" ]
+  then
+    return 0
+  else
+    return 1
+  fi
+}
+
+function down() {
+  LOCAL_ADDRESS=$(hostname)
+  [ -z ${LOCAL_ADDRESS} ] && echo "ERROR: cannot find LOCAL_ADDRESS for local container registry" >&2 && exit 1
+
+  set +e
+  podman container stop "${CONTAINER_NAME}" &>/dev/null
+  podman container rm "${CONTAINER_NAME}" &>/dev/null
+
+  do_status
+  RC=$?
+  set -e
+
+  if [ $RC -eq 0 ]
+  then
+    echo "ERROR: local container registry is STILL running." >&2
+  else
+    unlock
+    echo "local container registry is stopped." >&2
+  fi
+}
+
+function delete() {
+  LOCAL_ADDRESS=$(hostname)
+  [ -z ${LOCAL_ADDRESS} ] && echo "ERROR: cannot find LOCAL_ADDRESS for local container registry" >&2 && exit 1
+  
+  LOCAL_ADDRESS_FILE="${USER_CONF_DIR}/registry.conf"
+  [ ! -f ${LOCAL_ADDRESS_FILE} ] && echo "ERROR: Missing LOCAL_ADDRESS_FILE at ${LOCAL_ADDRESS_FILE}" >&2 && exit 1
+
+  . ${LOCAL_ADDRESS_FILE}
+  DIRECTORY="${LOCAL_CONTAINER_REGISTRY_DIR}"
+  [ -z ${DIRECTORY} ] && echo "ERROR: cannot find DIRECTORY for local container registry" >&2 && exit 1
+  [ ! -d ${DIRECTORY} ] && echo "ERROR: cannot find DIRECTORY \"${DIRECTORY}\" for local container registry" >&2 && exit 1
+
+  set +e
+  do_status
+  RC=$?
+  set -e
+
+  if [ $RC -eq 0 ]
+  then
+    echo "ERROR: local container registry is STILL running." >&2
+    exit 1
+  fi
+
+  # Lock
+  lock
+
+  # Clean data
+  echo -n "Removing directory ${DIRECTORY} content ... " >&2
+  rm -rf ${DIRECTORY}/.lock && \
+  rm -rf ${DIRECTORY}/auth && \
+  rm -rf ${DIRECTORY}/certs && \
+  rm -rf ${DIRECTORY}/data && \
+  rm -rf ${DIRECTORY}/etc && \
+  echo "[DONE]" >&2
+  echo -n "Removing configuration file ${LOCAL_ADDRESS_FILE} ... " >&2
+  rm -rf ${LOCAL_ADDRESS_FILE} && echo "[DONE]" >&2
+  echo "" >&2
+  echo "local container registry is DELETED." >&2
+
+}
+
+function lock() {
+  local LOCK_FILE="${DIRECTORY}/.lock"
+ 
+  if [ -f "${LOCK_FILE}" ]
+  then
+    LOCKING_ADDRESS=$(cat ${LOCK_FILE} | cut -f1)
+    LOCKING_USER=$(cat ${LOCK_FILE} | cut -f2)
+    LOCKING_JOB=$(cat ${LOCK_FILE} | cut -f3)
+
+    if [ "${LOCKING_ADDRESS}" == "${LOCAL_ADDRESS}" ]
+    then
+      # Wait for concurrency prevention
+      LOCK_AGE=$(stat -c %Y ${LOCK_FILE})
+      NOW=$(date +%s)
+      [ $((NOW - LOCK_AGE)) -lt 3 ] && sleep 3
+
+      set +e
+      do_status
+      RC=$?
+      set -e
+
+      if [ "${LOCKING_USER}" == "${USER}" ] && [ "${LOCKING_JOB}" == "${SLURM_JOB_ID}" ]
+      then
+        if [ $RC -eq 0 ]
+        then
+          echo "ERROR: local container registry is running."
+          return 1
+        else
+          touch ${LOCK_FILE}
+          return 0
+        fi
+      else
+        if [ $RC -ne 0 ]
+        then
+          echo -e "${LOCAL_ADDRESS}\t${USER}\t${SLURM_JOB_ID}" > ${LOCK_FILE}
+          return 0
+        fi
+      fi
+    fi
+
+    MSG_SUFFIX=""
+    [ -n "${LOCKING_USER}" ] && MSG_SUFFIX="${MSG_SUFFIX} user ${LOCKING_USER} on"
+    [ -n "${LOCKING_JOB}" ] && MSG_SUFFIX="${MSG_SUFFIX} job ${LOCKING_JOB} at"
+    MSG_SUFFIX="${MSG_SUFFIX} ${LOCKING_ADDRESS}"
+    echo "ERROR: local container registry is locked by${MSG_SUFFIX}"
+    return 1
+
+  else
+    echo -e "${LOCAL_ADDRESS}\t${USER}\t${SLURM_JOB_ID}" > ${LOCK_FILE}
+    return 0
+  fi
+}
+
+function unlock() {
+  local LOCK_FILE="${DIRECTORY}/.lock"
+  if [ -f "${LOCK_FILE}" ]
+  then
+    LOCKING_ADDRESS=$(cat ${LOCK_FILE} | cut -f1)
+    LOCKING_USER=$(cat ${LOCK_FILE} | cut -f2)
+    LOCKING_JOB=$(cat ${LOCK_FILE} | cut -f3)
+
+    if [ "${LOCKING_ADDRESS}" == "${LOCAL_ADDRESS}" ]
+    then
+      if [ "${LOCKING_USER}" == "${USER}" ] && [ "${LOCKING_JOB}" == "${SLURM_JOB_ID}" ]
+      then
+        rm -f ${LOCK_FILE}
+        return 0
+      else
+        # Wait for concurrency prevention
+        LOCK_AGE=$(stat -c %Y ${LOCK_FILE})
+        NOW=$(date +%s)
+        [ $((NOW - LOCK_AGE)) -lt 3 ] && sleep 3
+
+        set +e
+        do_status
+        RC=$?
+        set -e
+
+        if [ $RC -ne 0 ]
+        then
+          rm -f ${LOCK_FILE}
+          return 0
+        fi
+      fi
+    fi
+    MSG_SUFFIX=""
+    [ -n "${LOCKING_USER}" ] && MSG_SUFFIX="${MSG_SUFFIX} user ${LOCKING_USER} on"
+    [ -n "${LOCKING_JOB}" ] && MSG_SUFFIX="${MSG_SUFFIX} job ${LOCKING_JOB} at"
+    MSG_SUFFIX="${MSG_SUFFIX} ${LOCKING_ADDRESS}"
+    echo "ERROR: local container registry is locked by${MSG_SUFFIX}"
+    return 1
+  fi
+}
+
+function find_running_port() {
+  podman container inspect ${CONTAINER_NAME} | jq -r '.[].NetworkSettings.Ports."5000/tcp"[0].HostPort'
+}
+
+function find_running_ip() {
+  podman container inspect ${CONTAINER_NAME} | jq -r '.[].NetworkSettings.Ports."5000/tcp"[0].HostIp'
+}
+
+function find_available_port() {
+
+  local DESIGNED_PORT="$1"
+  if [ -n "${DESIGNED_PORT}" ] && [ ${DESIGNED_PORT} -gt 0 ]
+  then
+    PORT_STATE=$(ss -Htan | awk '{print $4}' | cut -d':' -f2 | grep -w "${DESIGNED_PORT}" && echo BUSY || echo FREE)
+    if [ "${PORT_STATE}" == "FREE" ]
+    then
+      echo ${DESIGNED_PORT}
+      return 0
+    fi
+  fi
+
+  MIN_PORT_RANGE=$(cat /proc/sys/net/ipv4/ip_local_port_range | cut -f1)
+  MAX_PORT_RANGE=$(cat /proc/sys/net/ipv4/ip_local_port_range | cut -f2)
+  comm -23 \
+  <(seq "$MIN_PORT_RANGE" "$MAX_PORT_RANGE" | sort) \
+  <(ss -Htan | awk '{print $4}' | cut -d':' -f2 | sort -u) \
+  | shuf | head -n "1"
+}
+
+function status() {
+
+  set +e
+  do_status
+  RC=$?
+  set -e
+
+  if [ $RC -eq 0 ]
+  then
+    LOCAL_ADDRESS=$(find_running_ip)
+    [ "$LOCAL_ADDRESS" == "127.0.0.1" ] && LOCAL_ADDRESS="localhost"
+    LOCAL_PORT=$(find_running_port)
+    echo "local container registry is running at:" >&2
+    echo "${LOCAL_ADDRESS}:${LOCAL_PORT}" >&1
+  else
+    echo "local container registry is stopped." >&2
+  fi
+}
+
+CONTAINER_NAME="local_container_registry"
+USER_CONF_DIR="${HOME}/.local_container_registry"
+
+parse_args $@
+
+exit 0
+
+
