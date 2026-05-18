@@ -33,5 +33,4 @@ else
 fi
 
 echo "Executing: podman build ${BUILD_OPTS} $@" >&2
-exit 0
 podman build ${BUILD_OPTS} $@
