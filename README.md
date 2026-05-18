@@ -19,7 +19,7 @@ Cloning into 'local_container_registry'...
 Receiving objects: 100% (6/6), done.
 $ cd local_container_registry
 
-# LAUNCH interactive slurm job
+# LAUNCH interactive slurm job - local container registry can work only on compute nodes inside a slurm job
 $ srun ... --pty bash
 
 # SETUP registry
