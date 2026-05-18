@@ -398,6 +398,7 @@ function status() {
   fi
 }
 
+SCRIPTNAME=$(basename $0)
 CONTAINER_NAME="local_container_registry"
 USER_CONF_DIR="${HOME}/.local_container_registry"
 
